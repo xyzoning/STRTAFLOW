@@ -1,4 +1,4 @@
-PPO algorithm (with clipping, extending Actor-Critic)
+SLM-LAB PPO algorithm (with clipping, extending Actor-Critic)
 
 Set β ≥ 0, entropy regularization weight
 Set ε ≥ 0, the clipping variable

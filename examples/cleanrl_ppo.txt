@@ -1,4 +1,5 @@
-Algorithm 7.2 PPO with clipping, extending Actor-Critic
+cleanrl PPO algorithm
+
 Set β ≥ 0, entropy regularization weight
 Set ε ≥ 0, the clipping variable
 Set K, the number of epochs
