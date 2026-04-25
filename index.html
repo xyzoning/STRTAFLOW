@@ -1,0 +1,246 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>StrataFlow IDE</title>
+
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+      }
+
+      /* ===== Main Layout ===== */
+      .container {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        height: 100vh;
+      }
+
+      /* ===== Sidebar ===== */
+      .sidebar {
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+        background: #2d2d2d;
+        color: white;
+        border-right: 1px solid #444;
+      }
+
+      .pane {
+        border-bottom: 1px solid #444;
+        padding: 8px;
+        overflow: auto;
+      }
+
+      .pane:last-child {
+        border-bottom: none;
+      }
+
+      /* ===== Main Area ===== */
+      .main {
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 2fr 1fr;
+        /* Prevent the row from expanding past its 50% allocation */
+        max-height: 50vh;
+        border-bottom: 1px solid #ccc;
+        overflow: hidden;
+      }
+
+      .row:last-child {
+        border-bottom: none;
+      }
+
+      .cell {
+        border-right: 1px solid #ccc;
+        padding: 6px;
+        display: flex;
+        flex-direction: column;
+        height: 100%; /* Ensure cell fills the grid row */
+        overflow: hidden;
+      }
+
+      /* This is the magic wrapper for Monaco */
+      .editor-container {
+        flex-grow: 1;
+        position: relative;
+        width: 100%;
+        min-height: 0; /* Critical for flexbox + Monaco */
+      }
+      .cell > div:last-child {
+        flex: 1;
+        min-height: 0; /* 👈 VERY IMPORTANT */
+        min-width: 0; /* 👈 FIXES scrollbar positioning */
+      }
+      .pseudo {
+        margin: 0;
+        padding: 8px;
+        font-family: monospace;
+        white-space: pre;
+        line-height: 1.5;
+        min-width: 100%; /* ✅ force width to container */
+        height: 100%; /* Ensure cell fills the grid row */
+        box-sizing: border-box;
+      }
+
+      .pseudo-container {
+        flex-grow: 1;
+        position: relative;
+        width: 100%;
+        min-height: 0; /* VERY IMPORTANT: allows flex child to shrink/grow properly */
+        overflow: hidden;
+      }
+
+      #editor1,
+      #editor2 {
+        width: 100%;
+        height: 100%;
+      }
+
+      #pseudo1,
+      #pseudo2 {
+        width: 100%;
+        height: 100%;
+        background-color: #f9f9f9;
+      }
+
+      /* ===== Labels ===== */
+      .title {
+        font-size: 12px;
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: #666;
+      }
+
+      /* ===== Placeholder styling ===== */
+      .placeholder {
+        color: #999;
+        font-size: 13px;
+      }
+      .monaco-editor .breakpoint {
+        width: 2px;
+        height: 2px;
+        background: brown;
+        border-radius: 50%;
+        margin-left: 6px; /* 👈 center horizontally */
+        margin-top: 4px; /* 👈 center vertically */
+      }
+
+      .current-line-highlight {
+        background-color: rgba(255, 255, 0, 0.3); /* light yellow */
+      }
+
+      .current-line-arrow {
+        background: url("data:image/svg+xml;utf8,<svg ...>") no-repeat center;
+      }
+
+      .pseudocode-line {
+        background-color: #fff7cc; /* light yellow */
+        font-style: italic;
+      }
+
+      .pane {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      #pdfInput {
+        margin-bottom: 5px;
+      }
+
+      #pdfViewer {
+        flex: 1; /* fill remaining space */
+      }
+    </style>
+  </head>
+
+  <body>
+    <div style="padding: 6px; background: #eee; border-bottom: 1px solid #ccc">
+      <button id="annotateBtn1">Annotate 1st</button>
+      <button id="runBtn1">Run 1st</button>
+      <button id="continueBtn1">Continue 1st</button>
+    </div>
+    <div style="padding: 6px; background: #eee; border-bottom: 1px solid #ccc">
+      <button id="runBtn2">Run 2nd</button>
+      <button id="continueBtn2">Continue 1st</button>
+      >
+    </div>
+
+    <div class="container">
+      <!-- ===== LEFT SIDEBAR ===== -->
+      <div class="sidebar">
+        <div class="pane">
+          <div class="title">Files</div>
+          <ul id="fileList"></ul>
+        </div>
+
+        <div class="pane">
+          <div class="title">RL Documents</div>
+
+          <!-- ✅ File picker -->
+          <input type="file" id="pdfInput" accept="application/pdf" />
+
+          <!-- ✅ PDF viewer -->
+          <iframe
+            id="pdfViewer"
+            style="width: 100%; height: 90%; border: none"
+          ></iframe>
+        </div>
+      </div>
+
+      <!-- ===== MAIN AREA ===== -->
+      <div class="main">
+        <!-- Row 1 -->
+        <div class="row">
+          <div class="cell">
+            <div class="title">Pseudo Code (File 1)</div>
+            <div class="pseudo-container">
+              <pre id="pseudo1" class="pseudo"></pre>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="title">Source Code (File 1)</div>
+            <div class="editor-container">
+              <div
+                id="editor1"
+                style="position: absolute; top: 0; bottom: 0; left: 0; right: 0"
+              ></div>
+            </div>
+          </div>
+
+          <pre id="output1" class="output-panel">Execution result here</pre>
+        </div>
+
+        <div class="row">
+          <div class="cell">
+            <div class="title">Pseudo Code (File 2)</div>
+            <div class="pseudo-container">
+              <pre id="pseudo2" class="pseudo"></pre>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="title">Source Code (File 2)</div>
+            <div class="editor-container">
+              <div
+                id="editor2"
+                style="position: absolute; top: 0; bottom: 0; left: 0; right: 0"
+              ></div>
+            </div>
+          </div>
+
+          <pre id="output1" class="output-panel">Execution result here</pre>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    <script src="renderer.js"></script>
+  </body>
+</html>

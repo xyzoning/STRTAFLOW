@@ -1,0 +1,13 @@
+REINFORCE algorithm
+
+Initialize learning rate α
+Initialize weights θ of a policy network πθ
+for episode = 0,...,MAX_EPISODE do
+    Sample a trajectory τ = s0, a0, r0, . . . , sT , aT , rT
+    Set ∇θJ(πθ) = 0
+    for t = 0, . . . , T do
+        Rt(τ ) = P Tt0 =t γt0 −tr0t
+        ∇θJ(πθ) = ∇θJ(πθ) + Rt(τ )∇θ log πθ(at | st)
+    end for
+    θ = θ + α∇θJ(πθ)
+end for

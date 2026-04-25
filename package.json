@@ -1,0 +1,19 @@
+{
+  "name": "strataflow",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^41.2.1"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.55.1"
+  }
+}
