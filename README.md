@@ -1,3 +1,3 @@
-# StrataFlow: A Local Gemma4-Powered Interactive Coding & Learning Environment
+# StrataFlow: A Local LLM-Powered Interactive Algorithm Learning Environment
 
 ![App Screenshot](docs/GUI_main.png)
