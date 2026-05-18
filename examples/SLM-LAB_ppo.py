@@ -16,60 +16,20 @@ logger = logger.get_logger(__name__)
 
 
 class PPO(ActorCritic):
-    """
-    Implementation of PPO
-    This is actually just ActorCritic with a custom loss function
-    Original paper: "Proximal Policy Optimization Algorithms"
-    https://arxiv.org/pdf/1707.06347.pdf
-
-    Adapted from OpenAI baselines, CPU version https://github.com/openai/baselines/tree/master/baselines/ppo1
-    Algorithm:
-    for iteration = 1, 2, 3, ... do
-        for actor = 1, 2, 3, ..., N do
-            run policy pi_old in env for T timesteps
-            compute advantage A_1, ..., A_T
-        end for
-        optimize surrogate L wrt theta, with K epochs and minibatch size M <= NT
-    end for
-
-    e.g. algorithm_spec
-    "algorithm": {
-        "name": "PPO",
-        "action_pdtype": "default",
-        "action_policy": "default",
-        "explore_var_spec": null,
-        "gamma": 0.99,
-        "lam": 0.95,
-        "clip_eps_spec": {
-          "name": "linear_decay",
-          "start_val": 0.01,
-          "end_val": 0.001,
-          "start_step": 100,
-          "end_step": 5000,
-        },
-        "entropy_coef_spec": {
-          "name": "linear_decay",
-          "start_val": 0.01,
-          "end_val": 0.001,
-          "start_step": 100,
-          "end_step": 5000,
-        },
-        "minibatch_size": 256,
-        "time_horizon": 32,
-        "training_epoch": 8,
-    }
-
-    e.g. special net_spec param "shared" to share/separate Actor/Critic
-    "net": {
-        "type": "MLPNet",
-        "shared": true,
-        ...
-    """
 
     @lab_api
     def init_algorithm_params(self):
         """Initialize other algorithm parameters"""
-        # set default
+
+        ##Pseudocode [line 2: Set β ≥ 0, entropy regularization weight]##
+        ##Pseudocode [line 3: Set ε ≥ 0, the clipping variable]##
+        ##Pseudocode [line 4: Set K, the number of epochs]##
+        ##Pseudocode [line 5: Set N, the number of actors]##
+        ##Pseudocode [line 6: Set T, the time horizon]##
+        ##Pseudocode [line 7: Set M ≤ NT, the minibatch size]##
+        ##Pseudocode [line 8: Set αA ≥ 0, actor learning rate]##
+        ##Pseudocode [line 9: Set αC ≥ 0, critic learning rate]##
+
         util.set_attr(
             self,
             dict(
@@ -79,290 +39,105 @@ class PPO(ActorCritic):
                 entropy_coef_spec=None,
                 minibatch_size=4,
                 val_loss_coef=1.0,
-                normalize_v_targets=False,  # Normalize value targets to prevent gradient explosion
-                clip_vloss=False,  # CleanRL-style value loss clipping (uses clip_eps)
-                symlog=False,  # Symlog value compression (DreamerV3)
-                normalize_advantages="standardize",  # 'standardize' or 'percentile' (DreamerV3)
+                normalize_v_targets=False,
+                clip_vloss=False,
+                symlog=False,
+                normalize_advantages="standardize",
             ),
         )
-        util.set_attr(
-            self,
-            self.algorithm_spec,
-            [
-                "action_pdtype",
-                "action_policy",
-                # theoretically, PPO does not have policy update; but in this implementation we have such option
-                "explore_var_spec",
-                "gamma",
-                "lam",
-                "clip_eps_spec",
-                "entropy_coef_spec",
-                "val_loss_coef",
-                "minibatch_size",
-                "time_horizon",  # training_frequency = actor * horizon
-                "training_epoch",
-                "normalize_v_targets",
-                "clip_vloss",
-                "symlog",
-                "normalize_advantages",
-            ],
-        )
-        self.to_train = 0
-        # guard
-        num_envs = self.agent.env.num_envs
-        if self.minibatch_size % num_envs != 0 or self.time_horizon % num_envs != 0:
-            self.minibatch_size = math.ceil(self.minibatch_size / num_envs) * num_envs
-            self.time_horizon = math.ceil(self.time_horizon / num_envs) * num_envs
-            logger.info(
-                f"minibatch_size and time_horizon needs to be multiples of num_envs; autocorrected values: minibatch_size: {self.minibatch_size}  time_horizon {self.time_horizon}"
-            )
-        # Ensure minibatch_size doesn't exceed batch_size
-        batch_size = self.time_horizon * num_envs
-        if self.minibatch_size > batch_size:
-            self.minibatch_size = batch_size
-            logger.info(
-                f"minibatch_size cannot exceed batch_size ({batch_size}); autocorrected to: {self.minibatch_size}"
-            )
-        self.training_frequency = (
-            self.time_horizon
-        )  # since all memories stores num_envs by batch in list
-        assert self.memory_spec["name"] == "OnPolicyBatchReplay", (
-            f"PPO only works with OnPolicyBatchReplay, but got {self.memory_spec['name']}"
-        )
-        self.action_policy = getattr(policy_util, self.action_policy)
-        self.explore_var_scheduler = policy_util.VarScheduler(self.explore_var_spec)
-        self.agent.explore_var = self.explore_var_scheduler.start_val
-        # extra variable decays for PPO
-        self.clip_eps_scheduler = policy_util.VarScheduler(self.clip_eps_spec)
-        self.clip_eps = self.clip_eps_scheduler.start_val
-        if self.entropy_coef_spec is not None:
-            self.entropy_coef_scheduler = policy_util.VarScheduler(
-                self.entropy_coef_spec
-            )
-            self.agent.entropy_coef = self.entropy_coef_scheduler.start_val
-        # Initialize return normalizer for value target scaling (VecNormalize-style)
-        if self.normalize_v_targets:
-            self.return_normalizer = ReturnNormalizer()
-        else:
-            self.return_normalizer = None
-        # Initialize percentile normalizer if selected
-        if self.normalize_advantages == "percentile":
-            self.percentile_normalizer = PercentileNormalizer()
-        # PPO uses GAE
-        self.calc_advs_v_targets = self.calc_gae_advs_v_targets
-        # Register PPO-specific variables for logging
-        self.agent.mt.register_algo_var("clip_eps", self)
-        if self.entropy_coef_spec is not None:
-            self.agent.mt.register_algo_var("entropy", self.agent)
 
     @lab_api
     def init_nets(self, global_nets=None):
         """PPO uses old and new to calculate ratio for loss"""
+
         super().init_nets(global_nets)
-        # create old net to calculate ratio
+
+        ##Pseudocode [line 11: Initialize the “old” actor network θAold]##
         self.old_net = deepcopy(self.net)
-        assert id(self.old_net) != id(self.net)
 
     def calc_policy_loss(self, batch, pdparams, advs):
-        """
-        The PPO loss function (subscript t is omitted)
-        L^{CLIP+VF+S} = E[ L^CLIP - c1 * L^VF + c2 * H[pi](s) ]
 
-        Breakdown piecewise,
-        1. L^CLIP = E[ min(ratio * A, clip(ratio, 1-eps, 1+eps) * A) ]
-        where ratio = pi(a|s) / pi_old(a|s)
+        ##Pseudocode [line 19: Calculate rm(θA)]##
+        ##Pseudocode [line 20: Calculate JmCLIP(θA) using the advantages Am from the minibatch and rm(θA)]##
 
-        2. L^VF = E[ mse(V(s_t), V^target) ]
-
-        3. H = E[ entropy ]
-        """
-        clip_eps = self.clip_eps
-        action_pd = policy_util.init_action_pd(self.agent.ActionPD, pdparams)
-        states = batch["states"]
-        actions = batch["actions"]
-        if self.agent.env.is_venv:
-            states = math_util.venv_unpack(states)
-            actions = math_util.venv_unpack(actions)
-
-        # Ensure advs is always 1D regardless of venv to match log_probs shape
-        advs = advs.view(-1)
-
-        # Normalize advantages per minibatch
-        if self.normalize_advantages == "percentile":
-            self.percentile_normalizer.update(advs)
-            advs = self.percentile_normalizer.normalize(advs)
-        elif len(advs) > 1:
-            advs = math_util.standardize(advs)
-
-        # L^CLIP
-        log_probs = policy_util.reduce_multi_action(action_pd.log_prob(actions))
-        with torch.no_grad():
-            old_pdparams = self.calc_pdparam(states, net=self.old_net)
-            old_action_pd = policy_util.init_action_pd(
-                self.agent.ActionPD, old_pdparams
-            )
-            old_log_probs = policy_util.reduce_multi_action(
-                old_action_pd.log_prob(actions)
-            )
-        assert log_probs.shape == old_log_probs.shape, (
-            f"log_probs shape {log_probs.shape} != old_log_probs shape {old_log_probs.shape}"
+        log_probs = policy_util.reduce_multi_action(
+            policy_util.init_action_pd(self.agent.ActionPD, pdparams).log_prob(batch["actions"])
         )
-        # Clip log ratio to prevent numerical instability (exp overflow)
+
+        with torch.no_grad():
+            old_pdparams = self.calc_pdparam(batch["states"], net=self.old_net)
+            old_action_pd = policy_util.init_action_pd(self.agent.ActionPD, old_pdparams)
+            old_log_probs = policy_util.reduce_multi_action(old_action_pd.log_prob(batch["actions"]))
+
         log_ratio = torch.clamp(log_probs - old_log_probs, -20.0, 20.0)
         ratios = torch.exp(log_ratio)
-        sur_1 = ratios * advs
-        sur_2 = torch.clamp(ratios, 1.0 - clip_eps, 1.0 + clip_eps) * advs
-        # flip sign because need to maximize
-        clip_loss = -torch.min(sur_1, sur_2).mean()
 
-        # L^VF (inherit from ActorCritic)
+        ##Pseudocode [line 21: Calculate entropies Hm using using the actor network θA]##
+        entropy = policy_util.reduce_multi_action(
+            policy_util.init_action_pd(self.agent.ActionPD, pdparams).entropy()
+        ).mean()
 
-        # H entropy regularization
-        entropy = policy_util.reduce_multi_action(action_pd.entropy()).mean()
-        self.agent.entropy = entropy.detach()  # Update value for logging
+        ##Pseudocode [line 22: Calculate policy loss:]##
+        ##Pseudocode [line 23: Lpol(θA) = JmCLIP(θA) − βHm]##
+        clip_loss = -torch.min(ratios * advs, torch.clamp(ratios, 1 - self.clip_eps, 1 + self.clip_eps) * advs).mean()
         ent_penalty = -self.agent.entropy_coef * entropy
 
-        policy_loss = clip_loss + ent_penalty
-        logger.debug(f"PPO policy loss: {policy_loss:g}")
-        return policy_loss
+        return clip_loss + ent_penalty
 
     def calc_val_loss(self, v_preds, v_targets, old_v_preds=None):
-        """Calculate PPO value loss with optional CleanRL-style value clipping and symlog compression.
 
-        Args:
-            v_preds: Current value predictions
-            v_targets: GAE-computed value targets
-            old_v_preds: Value predictions from before network update (for clipping)
-        """
-        # Apply symlog compression to both preds and targets if enabled
-        if self.symlog:
-            v_preds_loss = math_util.symlog(v_preds)
-            v_targets_loss = math_util.symlog(v_targets)
-        else:
-            v_preds_loss = v_preds
-            v_targets_loss = v_targets
-
-        if self.clip_vloss and old_v_preds is not None:
-            # CleanRL-style value clipping
-            if self.symlog:
-                old_v_preds = math_util.symlog(old_v_preds)
-            v_loss_unclipped = (v_preds_loss - v_targets_loss) ** 2
-            v_clipped = old_v_preds + torch.clamp(
-                v_preds_loss - old_v_preds,
-                -self.clip_eps,
-                self.clip_eps,
-            )
-            v_loss_clipped = (v_clipped - v_targets_loss) ** 2
-            v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-            val_loss = 0.5 * self.val_loss_coef * v_loss_max.mean()
-            logger.debug(f"PPO clipped value loss: {val_loss:g}")
-            return val_loss
-        else:
-            # Standard value loss with symlog-compressed inputs
-            return super().calc_val_loss(v_preds_loss, v_targets_loss)
+        ##Pseudocode [line 25: Calculate predicted V -value Vˆ π(sm) using the critic network θC]##
+        ##Pseudocode [line 26: Calculate value loss using the V -targets from the minibatch:]##
+        return 0.5 * ((v_preds - v_targets) ** 2).mean()
 
     def train(self):
+
+        ##Pseudocode [line 12: for i = 1, 2, . . . do]##
         if self.to_train == 1:
-            net_util.copy(self.net, self.old_net)  # update old net
+
+            ##Pseudocode [line 13: Set θAold = θA]##
+            net_util.copy(self.net, self.old_net)
+
             batch = self.sample()
-            self.agent.env.set_batch_size(len(batch))
+
+            ##Pseudocode [line 15: Run policy θAold in environment for T time steps and collect the trajectories]##
+            ##Pseudocode [line 16: Compute advantages A1, . . . , AT using θAold]##
+            ##Pseudocode [line 17: Calculate Vtarπ,1, . . . , Vtarπ,T using the critic network θC and/or trajectory data]##
             with torch.no_grad():
                 states = batch["states"]
-                if self.agent.env.is_venv:
-                    states = math_util.venv_unpack(states)
-                # NOTE states is massive with batch_size = time_horizon * num_envs. Chunk up so forward pass can fit into device esp. GPU
-                num_chunks = max(1, int(len(states) / self.minibatch_size))
-                v_preds_chunks = [
-                    self.calc_v(states_chunk, use_cache=False)
-                    for states_chunk in torch.chunk(states, num_chunks)
-                ]
-                v_preds = torch.cat(v_preds_chunks)
+                v_preds = self.calc_v(states, use_cache=False)
                 advs, v_targets = self.calc_advs_v_targets(batch, v_preds)
-            # piggy back on batch, but remember to not pack or unpack
-            # Store old v_preds for value clipping (CleanRL-style)
-            batch["advs"], batch["v_targets"], batch["old_v_preds"] = (
-                advs,
-                v_targets,
-                v_preds,
-            )
-            if self.agent.env.is_venv:  # unpack if venv for minibatch sampling
-                for k, v in batch.items():
-                    if k not in ("advs", "v_targets", "old_v_preds"):
-                        batch[k] = math_util.venv_unpack(v)
+
+            ##Pseudocode [line 18: Let batch with size NT consist of the collected trajectories, advantages, and target V -values]##
+            batch["advs"], batch["v_targets"], batch["old_v_preds"] = advs, v_targets, v_preds
+
             total_loss = 0.0
+
+            ##Pseudocode [line 19: for epoch = 1, 2, . . . , K do]##
             for _ in range(self.training_epoch):
+
                 minibatches = util.split_minibatch(batch, self.minibatch_size)
+
+                ##Pseudocode [line 20: for minibatch m in batch do]##
                 for minibatch in minibatches:
-                    if self.agent.env.is_venv:  # re-pack to restore proper shape
-                        for k, v in minibatch.items():
-                            if k not in ("advs", "v_targets", "old_v_preds"):
-                                minibatch[k] = math_util.venv_pack(
-                                    v, self.agent.env.num_envs
-                                )
-                    advs, v_targets, old_v_preds = (
-                        minibatch["advs"],
-                        minibatch["v_targets"],
-                        minibatch["old_v_preds"],
-                    )
+
+                    ##Pseudocode [line 21: The following are computed over the whole minibatch m]##
                     pdparams, v_preds = self.calc_pdparam_v(minibatch)
-                    policy_loss = self.calc_policy_loss(
-                        minibatch, pdparams, advs
-                    )  # from actor
-                    val_loss = self.calc_val_loss(
-                        v_preds, v_targets, old_v_preds
-                    )  # from critic
-                    if self.shared:  # shared network
-                        loss = policy_loss + val_loss
-                        self.net.train_step(
-                            loss,
-                            self.optim,
-                            self.lr_scheduler,
-                            global_net=self.global_net,
-                        )
-                        self.agent.env.tick_opt_step()
-                    else:
-                        self.net.train_step(
-                            policy_loss,
-                            self.optim,
-                            self.lr_scheduler,
-                            global_net=self.global_net,
-                        )
-                        self.critic_net.train_step(
-                            val_loss,
-                            self.critic_optim,
-                            self.critic_lr_scheduler,
-                            global_net=self.global_critic_net,
-                        )
-                        self.agent.env.tick_opt_step()
-                        self.agent.env.tick_opt_step()
-                        loss = policy_loss + val_loss
+
+                    policy_loss = self.calc_policy_loss(minibatch, pdparams, minibatch["advs"])
+                    val_loss = self.calc_val_loss(v_preds, minibatch["v_targets"], minibatch["old_v_preds"])
+
+                    ##Pseudocode [line 27: Update actor parameters, for example using SGD:]##
+                    ##Pseudocode [line 28: θA = θA + αA∇θA Lpol(θA)]##
+                    ##Pseudocode [line 29: Update critic parameters, for example using SGD:]##
+                    ##Pseudocode [line 30: θC = θC + αC∇θC Lval(θC )]##
+                    loss = policy_loss + val_loss
+                    self.net.train_step(loss, self.optim, self.lr_scheduler)
+
                     total_loss += loss.item()
-            # Step LR scheduler once per training iteration (per batch of collected experience)
-            # This ensures proper LR decay matching CleanRL's approach
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.step()
-            if (
-                not self.shared
-                and hasattr(self, "critic_lr_scheduler")
-                and self.critic_lr_scheduler is not None
-            ):
-                self.critic_lr_scheduler.step()
-            loss = total_loss / self.training_epoch / len(minibatches)
-            # reset
+
             self.to_train = 0
-            logger.debug(
-                f"Trained {self.name} at epi: {self.agent.env.get('epi')}, frame: {self.agent.env.get('frame')}, t: {self.agent.env.get('t')}, total_reward so far: {self.agent.env.total_reward}, loss: {loss:g}"
-            )
-            return loss
+            return total_loss
+
         else:
             return np.nan
-
-    @lab_api
-    def update(self):
-        self.agent.explore_var = self.explore_var_scheduler.update(self, self.agent.env)
-        if self.entropy_coef_spec is not None:
-            self.agent.entropy_coef = self.entropy_coef_scheduler.update(
-                self, self.agent.env
-            )
-        self.clip_eps = self.clip_eps_scheduler.update(self, self.agent.env)
-        return self.agent.explore_var

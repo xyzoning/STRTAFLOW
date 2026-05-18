@@ -1,0 +1,22 @@
+Algorithm: GPT-2 Forward Pass and training
+Compute token embeddings: H₀ = E(X)
+Add positional embeddings: H₀ = H₀ + P[0:T]
+for ℓ = 1 to L do
+    H_norm = LayerNorm(H_{ℓ-1})
+    A = MultiHeadSelfAttention(H_norm, causal_mask)
+    H' = H_{ℓ-1} + A
+    H_norm = LayerNorm(H')
+    M = FeedForward(H_norm)
+    H_ℓ = H' + M
+end for
+Apply final normalization: H_L = LN_f(H_L)
+Compute output logits: Z = W_out(H_L)
+return Z
+
+Construct input-target pairs: X_in  = X[:, 0:T-1] and X_tar = X[:, 1:T]
+Forward pass: Z = ModelForward(X_in; θ)
+Compute probabilities: P = softmax(Z)
+Compute loss (cross-entropy): L = - (1 / (B(T-1))) * Σ log P(X_tar)
+Backpropagation: Compute gradients ∇θ L
+Parameter update: θ ← θ - α ∇θ L
+return θ, L

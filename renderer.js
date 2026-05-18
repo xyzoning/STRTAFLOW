@@ -81,6 +81,22 @@ function highlightPseudocode(editor) {
           className: "pseudocode-line",
         },
       });
+    } else if (line.includes("##Explanation")) {
+      decorations.push({
+        range: new monaco.Range(i + 1, 1, i + 1, line.length + 1),
+        options: {
+          isWholeLine: true,
+          className: "explanation-line",
+        },
+      });
+    } else if (line.includes("#Details")) {
+      decorations.push({
+        range: new monaco.Range(i + 1, 1, i + 1, line.length + 1),
+        options: {
+          isWholeLine: true,
+          className: "details-line",
+        },
+      });
     }
   });
 
@@ -92,6 +108,32 @@ require.config({
 });
 
 require(["vs/editor/editor.main"], function () {
+  // ================================
+  // 🧠 LLM Interaction (ADD HERE)
+  // ================================
+  function attachLLMInteraction(editor) {
+    editor.onMouseUp((e) => {
+      if (!e.event.shiftKey) return;
+
+      const selection = editor.getSelection();
+      if (!selection) return;
+
+      const selectedText = editor.getModel().getValueInRange(selection).trim();
+      if (!selectedText) return;
+
+      console.log("LLM Trigger:", selectedText);
+
+      // Optional highlight (if you already have it)
+      if (typeof highlightSelection === "function") {
+        highlightSelection(editor, selection);
+      }
+      console.log("LLM handleLLMQuery before", typeof handleLLMQuery);
+      if (typeof window.handleLLMQuery === "function") {
+        window.handleLLMQuery(selectedText);
+      }
+    });
+  }
+
   // ✅ 1. Register pseudo language
   monaco.languages.register({ id: "pseudo" });
 
@@ -102,6 +144,94 @@ require(["vs/editor/editor.main"], function () {
         [/[a-zA-Z_][a-zA-Z0-9_]*/, "identifier"],
         [/\d+/, "number"],
         [/".*?"/, "string"],
+      ],
+    },
+  });
+
+  monaco.languages.setMonarchTokensProvider("verilog", {
+    keywords: [
+      "module",
+      "endmodule",
+      "input",
+      "output",
+      "wire",
+      "reg",
+      "always",
+      "begin",
+      "end",
+      "if",
+      "else",
+      "case",
+      "endcase",
+      "assign",
+      "posedge",
+      "negedge",
+    ],
+
+    operators: [
+      "=",
+      "==",
+      "!=",
+      "<",
+      ">",
+      "<=",
+      ">=",
+      "+",
+      "-",
+      "*",
+      "/",
+      "%",
+      "&",
+      "|",
+      "^",
+      "~",
+      "<<",
+      ">>",
+    ],
+
+    symbols: /[=><!~?:&|+\-*\/\^%]+/,
+
+    tokenizer: {
+      root: [
+        [
+          /[a-zA-Z_]\w*/,
+          {
+            cases: {
+              "@keywords": "keyword",
+              "@default": "identifier",
+            },
+          },
+        ],
+
+        { include: "@whitespace" },
+
+        [/[{}()\[\]]/, "@brackets"],
+
+        [
+          /@symbols/,
+          {
+            cases: {
+              "@operators": "operator",
+              "@default": "",
+            },
+          },
+        ],
+
+        [/\d+/, "number"],
+
+        [/".*?"/, "string"],
+      ],
+
+      whitespace: [
+        [/[ \t\r\n]+/, ""],
+        [/\/\/.*$/, "comment"],
+        [/\/\*/, "comment", "@comment"],
+      ],
+
+      comment: [
+        [/[^/*]+/, "comment"],
+        [/\*\//, "comment", "@pop"],
+        [/./, "comment"],
       ],
     },
   });
@@ -123,7 +253,7 @@ require(["vs/editor/editor.main"], function () {
   });
 
   pseudo1 = monaco.editor.create(document.getElementById("pseudo1"), {
-    value: "for i in range(10):\n  do something\nend",
+    value: "",
     language: "pseudo",
     theme: "pseudoTheme",
     readOnly: true,
@@ -142,7 +272,7 @@ require(["vs/editor/editor.main"], function () {
   });
 
   pseudo2 = monaco.editor.create(document.getElementById("pseudo2"), {
-    value: "for i in range(10):\n  do something\nend",
+    value: "",
     language: "pseudo",
     theme: "pseudoTheme",
     readOnly: true,
@@ -200,6 +330,19 @@ require(["vs/editor/editor.main"], function () {
     automaticLayout: true,
   });
 
+  editor2.onDidChangeModelContent(() => {
+    highlightPseudocode(editor2);
+  });
+
+  editor2.onMouseDown((e) => {
+    console.log("CLICK EVENT:", e.target.type);
+    if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
+      const line = e.target.position.lineNumber;
+      console.log("BREAKPOINT CLICKED LINE:", line);
+      toggleBreakpoint(line);
+    }
+  });
+
   pseudo1.onMouseDown((e) => {
     // Only care about real positions
     if (!e.target.position) return;
@@ -232,9 +375,14 @@ require(["vs/editor/editor.main"], function () {
       const line = e.target.position.lineNumber;
       console.log("Double-click line:", line);
 
-      handleSyncScroll(line, 1);
+      handleSyncScroll(line, 2);
     }
   });
+
+  attachLLMInteraction(editor1);
+  attachLLMInteraction(editor2);
+  attachLLMInteraction(pseudo1);
+  attachLLMInteraction(pseudo2);
 
   window.electronAPI.onDebugPaused((data) => {
     console.log("Paused at:", data);
@@ -379,6 +527,31 @@ function handleSyncScroll(lineNum, paneIndex) {
   });
 }
 
+function getLanguageFromFilename(filename) {
+  const ext = filename.split(".").pop().toLowerCase();
+
+  switch (ext) {
+    case "py":
+      return "python";
+    case "js":
+      return "javascript";
+    case "ts":
+      return "typescript";
+    case "html":
+      return "html";
+    case "css":
+      return "css";
+    case "json":
+      return "json";
+    case "v":
+      return "verilog"; // your custom one
+    case "sv":
+      return "verilog"; // SystemVerilog (same tokenizer if you want)
+    default:
+      return "plaintext";
+  }
+}
+
 function loadFileList() {
   // Use the destructured joinPath and getCwd
   const dir = joinPath(getCwd(), "examples");
@@ -395,7 +568,7 @@ function loadFileList() {
   list.innerHTML = "";
 
   files.forEach((file) => {
-    if (file.endsWith(".py")) {
+    if (file.endsWith(".py") || file.endsWith(".v")) {
       const li = document.createElement("li");
       li.textContent = file;
       li.style.padding = "4px 8px";
@@ -410,16 +583,17 @@ function loadFileList() {
 }
 
 function loadFile(filename) {
-  const baseName = filename.replace(".py", "");
-  const pyPath = joinPath(getCwd(), "examples", filename);
+  const baseName = filename.replace(/\.(py|v)$/, "");
+  const sourcePath = joinPath(getCwd(), "examples", filename);
   const pseudoPath = joinPath(getCwd(), "examples", `${baseName}.txt`);
   const mappingPath = joinPath(getCwd(), "examples", `${baseName}.json`);
 
   try {
-    const pyContent = readFileSync(pyPath);
+    const sourceContent = readFileSync(sourcePath);
 
     let pseudoContent = "No pseudo code found for this file.";
     try {
+      console.log("pseudoPath", pseudoPath);
       pseudoContent = readFileSync(pseudoPath);
     } catch (e) {
       /* ignore missing pseudo file */
@@ -438,28 +612,53 @@ function loadFile(filename) {
       else currentMappings2 = {};
     }
 
-    // Use specific IDs or data attributes to find titles reliably
-    // Based on your HTML, we'll look for the text content
-    const titles = Array.from(document.querySelectorAll(".title"));
-    const t1 = titles.find((t) => t.textContent.includes("(File 1)"));
-    const t2 = titles.find((t) => t.textContent.includes("(File 2)"));
+    const displayName = filename;
 
     if (currentTarget === 1) {
-      editor1.setValue(pyContent);
+      editor1.setValue(sourceContent);
       pseudo1.setValue(pseudoContent);
 
+      const language = getLanguageFromFilename(filename);
+      const model = monaco.editor.createModel(sourceContent, language);
+      monaco.editor.setModelLanguage(model, language);
+      const pseudo_title = document.getElementById("pseudo_title1");
+      const source_title = document.getElementById("source_title1");
+
+      if (pseudo_title)
+        pseudo_title.textContent = `Pseudo Code (${displayName})`;
+      if (source_title)
+        source_title.textContent = `Source Code (${displayName})`;
+
       // Safety check before styling
-      if (t1) t1.style.color = "#007acc";
-      if (t2) t2.style.color = "#666";
+      if (pseudo_title) pseudo_title.style.color = "#007acc";
+      if (source_title) source_title.style.color = "#007acc";
+
+      const pseudo_title_other = document.getElementById("pseudo_title2");
+      const source_title_other = document.getElementById("source_title2");
+      if (pseudo_title_other) pseudo_title_other.style.color = "#808080";
+      if (source_title_other) source_title_other.style.color = "#808080";
 
       currentTarget = 2; // Move to next pane
       console.log("Pane 1 updated, next is Pane 2");
     } else {
-      editor2.setValue(pyContent);
+      editor2.setValue(sourceContent);
       pseudo2.setValue(pseudoContent);
+      const pseudo_title = document.getElementById("pseudo_title2");
+      const source_title = document.getElementById("source_title2");
 
-      if (t2) t2.style.color = "#007acc";
-      if (t1) t1.style.color = "#666";
+      if (pseudo_title)
+        pseudo_title.textContent = `Pseudo Code (${displayName})`;
+      if (source_title)
+        source_title.textContent = `Source Code (${displayName})`;
+
+      // Safety check before styling
+      if (pseudo_title) pseudo_title.style.color = "#007acc";
+      if (source_title) source_title.style.color = "#007acc";
+
+      const pseudo_title_other = document.getElementById("pseudo_title1");
+      const source_title_other = document.getElementById("source_title1");
+      if (pseudo_title_other) pseudo_title_other.style.color = "#808080";
+      if (source_title_other) source_title_other.style.color = "#808080";
 
       currentTarget = 1; // Move back to first pane
       console.log("Pane 2 updated, next is Pane 1");
@@ -483,12 +682,152 @@ window.addEventListener("resize", () => {
   if (pseudo1) pseudo1.layout();
   if (pseudo2) pseudo2.layout();
 });
+
 window.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("pdfInput").addEventListener("change", (e) => {
+  let currentPDF = null;
+
+  const chatHistory = document.getElementById("chat-history");
+  const input = document.getElementById("chat-input");
+  const button = document.getElementById("chat-send");
+
+  // ================================
+  // 📄 Load PDF + build RAG
+  // ================================
+  document.getElementById("pdfInput").addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    currentPDF = file.name;
+
     const url = URL.createObjectURL(file);
     document.getElementById("pdfViewer").src = url;
+
+    await fetch("http://127.0.0.1:8000/rag/build", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        document_name: file.name,
+      }),
+    });
+  });
+
+  // ================================
+  // 💬 Chat helpers
+  // ================================
+  function addUserMessage(text) {
+    const div = document.createElement("div");
+    div.className = "chat-user";
+    div.textContent = "You:\n" + text;
+    chatHistory.appendChild(div);
+  }
+
+  function addBotMessage() {
+    const div = document.createElement("div");
+    div.className = "chat-bot";
+    div.textContent = "";
+    chatHistory.appendChild(div);
+    return div;
+  }
+
+  function scrollToBottom() {
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
+  // ================================
+  // 🌊 Streaming LLM call
+  // ================================
+  async function streamLLM(question, onToken) {
+    const response = await fetch("http://127.0.0.1:8000/query_stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        question,
+        db_name: currentPDF,
+      }),
+    });
+
+    if (!response.body) {
+      console.error("No response body");
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      onToken(chunk);
+    }
+  }
+
+  // ================================
+  // 🎨 Highlight (per editor)
+  // ================================
+  const decorationMap = new WeakMap();
+
+  function highlightSelection(editor, selection) {
+    const prev = decorationMap.get(editor) || [];
+
+    const next = editor.deltaDecorations(prev, [
+      {
+        range: selection,
+        options: {
+          inlineClassName: "highlighted-selection",
+        },
+      },
+    ]);
+
+    decorationMap.set(editor, next);
+  }
+
+  // ================================
+  // 🧠 LLM query handler (selection)
+  // ================================
+  window.handleLLMQuery = async function (selectedText) {
+    if (!selectedText || selectedText.length < 3) return;
+
+    addUserMessage(selectedText);
+
+    const botDiv = addBotMessage();
+    scrollToBottom();
+
+    const question = selectedText;
+
+    await streamLLM(question, (chunk) => {
+      botDiv.textContent += chunk;
+      scrollToBottom();
+    });
+  };
+
+  // ================================
+  // 🚀 Chat input send
+  // ================================
+  button.onclick = async () => {
+    const question = input.value.trim();
+    if (!question) return;
+
+    input.value = "";
+
+    addUserMessage(question);
+    const botDiv = addBotMessage();
+
+    await streamLLM(question, (chunk) => {
+      botDiv.textContent += chunk;
+      scrollToBottom();
+    });
+  };
+
+  // Enter key support
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      button.click();
+    }
   });
 });

@@ -1,0 +1,8 @@
+Initialize system on reset
+Handle AXI-Lite write transactions
+Handle AXI-Lite read transactions
+Receive data from input AXI-Stream
+Execute computation logic
+Transmit data via output AXI-Stream
+Assert interrupt on completion
+Manage handshake and flow control signals
