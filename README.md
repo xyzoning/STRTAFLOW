@@ -1,3 +1,3 @@
-# An Electron and LLM based algorithm learning IDE to run, debug, and annotate Python algorithms
+# StrataFlow: A Local Gemma4-Powered Interactive Coding & Learning Environment
 
 ![App Screenshot](docs/GUI_main.png)
